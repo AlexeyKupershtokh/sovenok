@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f5f4ef" />
+    <meta
+      name="description"
+      content="Интерактивная задача об обходе шахматной доски. Постройте путь через все клетки с пропорцией ходов 1:4:2."
+    />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>Совёнок — каждая клетка, ровно один раз</title>
+  </head>
+  <body>
+    <div class="page">
+      <header class="site-header">
+        <a class="brand" href="./" aria-label="Совёнок — главная">
+          <svg viewBox="0 0 36 36" aria-hidden="true">
+            <path
+              d="M6 9 13 13 18 10 23 13 30 9 28 24 18 30 8 24Z"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+              stroke-linejoin="round"
+            />
+            <circle
+              cx="13"
+              cy="19"
+              r="4"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+            />
+            <circle
+              cx="23"
+              cy="19"
+              r="4"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+            />
+            <path
+              d="m16 24 2 2 2-2"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.8"
+            />
+          </svg>
+          <span>совёнок<span class="brand-dot">.</span></span>
+        </a>
+        <span class="header-caption">Маленькая лаборатория больших идей</span>
+        <a class="header-link" href="#how-it-works"
+          >Как это работает <span aria-hidden="true">↗</span></a
+        >
+      </header>
+
+      <main>
+        <section class="intro" aria-labelledby="page-title">
+          <div>
+            <p class="eyebrow">
+              <span class="tiny-square"></span> Исследуем маршруты · Задача 01
+            </p>
+            <h1 id="page-title">
+              Каждая клетка.<br /><span>Ровно один раз.</span>
+            </h1>
+            <p class="intro-text">
+              Из нижнего левого угла — в верхний правый.<br
+                class="desktop-break"
+              />
+              Один путь, вся доска и точный баланс ходов.
+            </p>
+          </div>
+          <div
+            class="ratio-intro"
+            aria-label="Пропорция ходов: 1 горизонтальный, 4 вертикальных, 2 диагональных"
+          >
+            <div>
+              <span class="ratio-letter h-color">H</span><strong>1</strong
+              ><small>горизонталь</small>
+            </div>
+            <span class="ratio-colon">:</span>
+            <div>
+              <span class="ratio-letter v-color">V</span><strong>4</strong
+              ><small>вертикаль</small>
+            </div>
+            <span class="ratio-colon">:</span>
+            <div>
+              <span class="ratio-letter d-color">D</span><strong>2</strong
+              ><small>диагональ</small>
+            </div>
+          </div>
+        </section>
+
+        <section class="workspace" aria-label="Конструктор маршрута">
+          <aside class="settings panel">
+            <div class="section-kicker">01 / Параметры</div>
+            <h2>Начнём с доски</h2>
+            <p class="muted settings-description">
+              Задайте размеры. Остальное<br />возьмёт на себя алгоритм.
+            </p>
+            <form id="board-form" novalidate>
+              <div class="dimensions">
+                <label for="columns"
+                  >Столбцы <span>M</span
+                  ><input
+                    id="columns"
+                    name="columns"
+                    type="number"
+                    min="1"
+                    max="31"
+                    step="2"
+                    value="9"
+                    inputmode="numeric"
+                    required
+                    aria-describedby="size-hint validation"
+                /></label>
+                <span class="dimension-times" aria-hidden="true">×</span>
+                <label for="rows"
+                  >Строки <span>N</span
+                  ><input
+                    id="rows"
+                    name="rows"
+                    type="number"
+                    min="1"
+                    max="31"
+                    step="2"
+                    value="11"
+                    inputmode="numeric"
+                    required
+                    aria-describedby="size-hint validation"
+                /></label>
+              </div>
+              <p id="size-hint" class="field-hint">Нечётные числа от 1 до 31</p>
+              <div class="presets" aria-label="Проверенные примеры размеров">
+                <span>Проверенные размеры · 24</span>
+                <button type="button" data-size="3,5">3 × 5</button>
+                <button type="button" data-size="3,19">3 × 19</button>
+                <button type="button" data-size="5,17">5 × 17</button>
+                <button type="button" data-size="9,11">9 × 11</button>
+                <button type="button" data-size="11,9">11 × 9</button>
+                <button type="button" data-size="5,31">5 × 31</button>
+                <button type="button" data-size="13,13">13 × 13</button>
+                <button type="button" data-size="9,25">9 × 25</button>
+                <button type="button" data-size="15,15">15 × 15</button>
+                <button type="button" data-size="25,9">25 × 9</button>
+                <button type="button" data-size="11,23">11 × 23</button>
+                <button type="button" data-size="23,11">23 × 11</button>
+                <button type="button" data-size="17,19">17 × 19</button>
+                <button type="button" data-size="19,17">19 × 17</button>
+                <button type="button" data-size="13,27">13 × 27</button>
+                <button type="button" data-size="27,13">27 × 13</button>
+                <button type="button" data-size="15,29">15 × 29</button>
+                <button type="button" data-size="29,15">29 × 15</button>
+                <button type="button" data-size="23,25">23 × 25</button>
+                <button type="button" data-size="25,23">25 × 23</button>
+                <button type="button" data-size="19,31">19 × 31</button>
+                <button type="button" data-size="31,19">31 × 19</button>
+                <button type="button" data-size="27,27">27 × 27</button>
+                <button type="button" data-size="29,29">29 × 29</button>
+              </div>
+              <div
+                id="validation"
+                class="validation"
+                role="status"
+                aria-live="polite"
+              ></div>
+              <div class="quota-heading">
+                Доступно ходов <span id="quota-total">98</span>
+              </div>
+              <div class="quotas">
+                <div>
+                  <i class="move-symbol h-color">↔</i
+                  ><span>Горизонтальных</span><strong id="quota-h">14</strong>
+                </div>
+                <div>
+                  <i class="move-symbol v-color">↕</i><span>Вертикальных</span
+                  ><strong id="quota-v">56</strong>
+                </div>
+                <div>
+                  <i class="move-symbol d-color">⤢</i><span>Диагональных</span
+                  ><strong id="quota-d">28</strong>
+                </div>
+              </div>
+              <button id="build" class="button primary" type="submit">
+                <span>Построить маршрут</span><span aria-hidden="true">↗</span>
+              </button>
+            </form>
+            <div class="settings-note">
+              <span aria-hidden="true">ⓘ</span>
+              <p>
+                Число переходов — <b>M × N − 1</b>.<br />Оно должно делиться на
+                7.
+              </p>
+            </div>
+            <div class="settings-bottom">
+              <span class="live-dot"></span> Все вычисления в вашем браузере
+            </div>
+          </aside>
+
+          <div class="board-panel panel">
+            <div class="board-toolbar">
+              <div class="board-title">
+                <h2 id="board-title">Доска 9 × 11</h2>
+                <span id="board-subtitle">99 клеток · 98 переходов</span>
+              </div>
+              <label class="number-toggle"
+                ><input type="checkbox" id="show-numbers" checked /><span
+                  class="toggle-track"
+                ></span
+                ><span>Номера</span></label
+              >
+            </div>
+            <div class="board-stage" id="board-stage">
+              <div class="board-wrap" id="board-wrap"></div>
+              <div class="board-message" id="board-message" hidden>
+                <span class="message-icon" aria-hidden="true">↗</span>
+                <h3 id="message-title"></h3>
+                <p id="message-description"></p>
+              </div>
+              <span class="corner-caption start-caption" id="start-caption"
+                ><i></i> старт</span
+              >
+              <span class="corner-caption finish-caption" id="finish-caption"
+                >финиш <i></i
+              ></span>
+            </div>
+            <div class="board-summary">
+              <span
+                id="route-status"
+                class="route-status"
+                role="status"
+                aria-live="polite"
+                >Подбираем маршрут…</span
+              >
+              <div class="legend">
+                <span><i class="h-bg"></i>H</span
+                ><span><i class="v-bg"></i>V</span
+                ><span><i class="d-bg"></i>D</span>
+              </div>
+            </div>
+            <div class="playback">
+              <div class="playback-top">
+                <div class="playback-buttons">
+                  <button
+                    type="button"
+                    id="rewind"
+                    class="icon-button"
+                    aria-label="К началу"
+                    title="К началу"
+                  >
+                    ↤
+                  </button>
+                  <button
+                    type="button"
+                    id="play"
+                    class="play-button"
+                    aria-label="Воспроизвести маршрут"
+                    title="Воспроизвести"
+                  >
+                    <svg
+                      viewBox="0 0 20 20"
+                      width="16"
+                      height="16"
+                      aria-hidden="true"
+                    >
+                      <path d="m6 3 11 7-11 7Z" fill="currentColor" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    id="next"
+                    class="icon-button"
+                    aria-label="Следующий ход"
+                    title="Следующий ход"
+                  >
+                    →
+                  </button>
+                </div>
+                <span class="step-counter"
+                  >Ход <b id="step-value">0</b
+                  ><span> / <span id="step-total">98</span></span></span
+                >
+                <label class="speed-label" for="speed"
+                  >Скорость
+                  <select id="speed">
+                    <option value="650">0.5×</option>
+                    <option value="300" selected>1×</option>
+                    <option value="100">3×</option>
+                    <option value="35">8×</option>
+                  </select></label
+                >
+              </div>
+              <input
+                type="range"
+                id="timeline"
+                min="0"
+                max="98"
+                value="0"
+                aria-label="Текущий ход маршрута"
+              />
+              <div class="playback-bottom">
+                <span id="visited-count">Посещено 1 из 99 клеток</span
+                ><button type="button" id="show-all">
+                  Показать весь путь <span aria-hidden="true">↗</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section
+          class="patterns-section"
+          id="how-it-works"
+          aria-labelledby="patterns-title"
+        >
+          <div class="patterns-heading">
+            <div>
+              <p class="eyebrow">02 / Идея алгоритма</p>
+              <h2 id="patterns-title">Большой путь из маленьких шагов</h2>
+            </div>
+            <p>
+              Полосы шириной в две клетки, простые паттерны<br />и последний
+              проход к финишу.
+            </p>
+          </div>
+          <div class="pattern-grid" id="pattern-grid"></div>
+          <div class="method-note">
+            <span class="method-note-number">7x</span>
+            <p>
+              На каждую горизонталь — четыре вертикали и две диагонали.<br /><span
+                >Паттерны показаны в координатах алгоритма; при транспонировании
+                H ↔ V. Отказ построения не доказывает невозможность.</span
+              >
+            </p>
+            <span class="method-note-formula">H + V + D = M × N − 1</span>
+          </div>
+        </section>
+      </main>
+      <footer>
+        <span
+          >совёнок. <span class="muted">Любопытство ведёт вперёд.</span></span
+        ><span
+          >Математика, которую можно увидеть
+          <span aria-hidden="true">↗</span></span
+        >
+      </footer>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
