@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#f5f4ef" />
     <meta
       name="description"
-      content="Интерактивная задача об обходе шахматной доски. Постройте путь через все клетки с пропорцией ходов 1:4:2."
+      content="Интерактивная задача об обходе шахматной доски. Задайте соотношение ходов короля и найдите обход доски с чётными или нечётными сторонами."
     />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Совёнок — каждая клетка, ровно один раз</title>
@@ -70,134 +70,154 @@
               Один путь, вся доска и точный баланс ходов.
             </p>
           </div>
-          <div
-            class="ratio-intro"
-            aria-label="Пропорция ходов: 1 горизонтальный, 4 вертикальных, 2 диагональных"
-          >
+          <div class="ratio-intro" aria-label="Соотношение H : D : V">
             <div>
-              <span class="ratio-letter h-color">H</span><strong>1</strong
-              ><small>горизонталь</small>
+              <span class="ratio-letter h-color">H</span
+              ><strong id="display-h">—</strong><small>горизонталь</small>
             </div>
             <span class="ratio-colon">:</span>
             <div>
-              <span class="ratio-letter v-color">V</span><strong>4</strong
-              ><small>вертикаль</small>
+              <span class="ratio-letter d-color">D</span
+              ><strong id="display-d">—</strong><small>диагональ</small>
             </div>
             <span class="ratio-colon">:</span>
             <div>
-              <span class="ratio-letter d-color">D</span><strong>2</strong
-              ><small>диагональ</small>
+              <span class="ratio-letter v-color">V</span
+              ><strong id="display-v">—</strong><small>вертикаль</small>
             </div>
           </div>
         </section>
 
         <section class="workspace" aria-label="Конструктор маршрута">
           <aside class="settings panel">
-            <div class="section-kicker">01 / Параметры</div>
-            <h2>Начнём с доски</h2>
-            <p class="muted settings-description">
-              Задайте размеры. Остальное<br />возьмёт на себя алгоритм.
-            </p>
-            <form id="board-form" novalidate>
-              <div class="dimensions">
-                <label for="columns"
-                  >Столбцы <span>M</span
+            <div class="section-kicker">01 / Соотношение ходов</div>
+            <h2 class="ratio-prompt">
+              Задайте соотношение горизонтальных, диагональных и вертикальных
+              ходов короля
+            </h2>
+            <form id="ratio-form" novalidate>
+              <div class="ratio-inputs">
+                <label for="ratio-h"
                   ><input
-                    id="columns"
-                    name="columns"
+                    id="ratio-h"
+                    name="ratio-h"
                     type="number"
-                    min="1"
-                    max="31"
-                    step="2"
-                    value="9"
+                    min="0"
+                    step="1"
                     inputmode="numeric"
+                    placeholder="1"
                     required
-                    aria-describedby="size-hint validation"
-                /></label>
-                <span class="dimension-times" aria-hidden="true">×</span>
-                <label for="rows"
-                  >Строки <span>N</span
+                    aria-describedby="validation"
+                  /><span
+                    ><b class="h-color">H</b> × ходов по горизонтали</span
+                  ></label
+                >
+                <label for="ratio-d"
                   ><input
-                    id="rows"
-                    name="rows"
+                    id="ratio-d"
+                    name="ratio-d"
                     type="number"
-                    min="1"
-                    max="31"
-                    step="2"
-                    value="11"
+                    min="0"
+                    step="1"
                     inputmode="numeric"
+                    placeholder="2"
                     required
-                    aria-describedby="size-hint validation"
-                /></label>
+                    aria-describedby="validation"
+                  /><span
+                    ><b class="d-color">D</b> × ходов по диагонали</span
+                  ></label
+                >
+                <label for="ratio-v"
+                  ><input
+                    id="ratio-v"
+                    name="ratio-v"
+                    type="number"
+                    min="0"
+                    step="1"
+                    inputmode="numeric"
+                    placeholder="4"
+                    required
+                    aria-describedby="validation"
+                  /><span
+                    ><b class="v-color">V</b> × ходов по вертикали</span
+                  ></label
+                >
               </div>
-              <p id="size-hint" class="field-hint">Нечётные числа от 1 до 31</p>
-              <div class="presets" aria-label="Проверенные примеры размеров">
-                <span>Проверенные размеры · 24</span>
-                <button type="button" data-size="3,5">3 × 5</button>
-                <button type="button" data-size="3,19">3 × 19</button>
-                <button type="button" data-size="5,17">5 × 17</button>
-                <button type="button" data-size="9,11">9 × 11</button>
-                <button type="button" data-size="11,9">11 × 9</button>
-                <button type="button" data-size="5,31">5 × 31</button>
-                <button type="button" data-size="13,13">13 × 13</button>
-                <button type="button" data-size="9,25">9 × 25</button>
-                <button type="button" data-size="15,15">15 × 15</button>
-                <button type="button" data-size="25,9">25 × 9</button>
-                <button type="button" data-size="11,23">11 × 23</button>
-                <button type="button" data-size="23,11">23 × 11</button>
-                <button type="button" data-size="17,19">17 × 19</button>
-                <button type="button" data-size="19,17">19 × 17</button>
-                <button type="button" data-size="13,27">13 × 27</button>
-                <button type="button" data-size="27,13">27 × 13</button>
-                <button type="button" data-size="15,29">15 × 29</button>
-                <button type="button" data-size="29,15">29 × 15</button>
-                <button type="button" data-size="23,25">23 × 25</button>
-                <button type="button" data-size="25,23">25 × 23</button>
-                <button type="button" data-size="19,31">19 × 31</button>
-                <button type="button" data-size="31,19">31 × 19</button>
-                <button type="button" data-size="27,27">27 × 27</button>
-                <button type="button" data-size="29,29">29 × 29</button>
+              <p class="field-hint">
+                Целые числа от 0. Хотя бы одно больше нуля.
+              </p>
+              <div class="ratio-examples">
+                <span>Примеры</span
+                ><button type="button" data-ratio="1,2,4">1 : 2 : 4</button
+                ><button type="button" data-ratio="2,1,2">2 : 1 : 2</button>
               </div>
-              <div
-                id="validation"
-                class="validation"
-                role="status"
-                aria-live="polite"
-              ></div>
+            </form>
+            <div
+              id="validation"
+              class="validation"
+              role="status"
+              aria-live="polite"
+            >
+              Заполните три поля или выберите пример.
+            </div>
+            <div id="quota-panel" hidden>
               <div class="quota-heading">
-                Доступно ходов <span id="quota-total">98</span>
+                Всего ходов <span id="quota-total">—</span>
               </div>
               <div class="quotas">
                 <div>
                   <i class="move-symbol h-color">↔</i
-                  ><span>Горизонтальных</span><strong id="quota-h">14</strong>
-                </div>
-                <div>
-                  <i class="move-symbol v-color">↕</i><span>Вертикальных</span
-                  ><strong id="quota-v">56</strong>
+                  ><span>Горизонтальных</span><strong id="quota-h">—</strong>
                 </div>
                 <div>
                   <i class="move-symbol d-color">⤢</i><span>Диагональных</span
-                  ><strong id="quota-d">28</strong>
+                  ><strong id="quota-d">—</strong>
+                </div>
+                <div>
+                  <i class="move-symbol v-color">↕</i><span>Вертикальных</span
+                  ><strong id="quota-v">—</strong>
                 </div>
               </div>
-              <button id="build" class="button primary" type="submit">
+              <p class="field-hint" id="multiplier"></p>
+              <button id="build" class="button primary" type="button">
                 <span>Построить маршрут</span><span aria-hidden="true">↗</span>
               </button>
-            </form>
-            <div class="settings-note">
-              <span aria-hidden="true">ⓘ</span>
-              <p>
-                Число переходов — <b>M × N − 1</b>.<br />Оно должно делиться на
-                7.
-              </p>
+              <details class="size-examples">
+                <summary id="examples-title">Проверенные размеры</summary>
+                <div class="presets" id="presets"></div>
+              </details>
             </div>
+            <details class="math-rules">
+              <summary>Условия подбора</summary>
+              <p>(a × b − 1) делится на H₀ + D₀ + V₀; x ≥ 1.</p>
+              <p>
+                (H + D) mod 2 = (a − 1) mod 2.<br />(V + D) mod 2 = (b − 1) mod
+                2.
+              </p>
+              <p>При нечётном b: H ≥ a − 1.<br />При нечётном a: V ≥ b − 1.</p>
+              <p>
+                Цвет углов проверяется по H + V. Эти условия необходимы; каждый
+                найденный путь дополнительно проверяется.
+              </p>
+            </details>
+            <p class="field-hint">
+              Локальная версия: стороны от 1 до 50, включая чётные. Показаны
+              размеры с проверенным обходом из разрешённых блоков.
+            </p>
             <div class="settings-bottom">
               <span class="live-dot"></span> Все вычисления в вашем браузере
             </div>
           </aside>
-
-          <div class="board-panel panel">
+          <div class="board-empty panel" id="board-empty">
+            <span class="empty-ratio" aria-hidden="true">H : D : V</span>
+            <h2 id="empty-title">Сначала задайте соотношение</h2>
+            <p id="empty-description">
+              Подберём минимальную найденную доску, а затем дадим изменить её
+              размер.
+            </p>
+          </div>
+          <div class="board-panel panel" id="board-panel" hidden>
+            <p class="size-prompt">Задайте размер шахматной доски</p>
             <div class="board-toolbar">
               <div class="board-title">
                 <h2 id="board-title">Доска 9 × 11</h2>
@@ -210,19 +230,68 @@
                 ><span>Номера</span></label
               >
             </div>
-            <div class="board-stage" id="board-stage">
-              <div class="board-wrap" id="board-wrap"></div>
-              <div class="board-message" id="board-message" hidden>
-                <span class="message-icon" aria-hidden="true">↗</span>
-                <h3 id="message-title"></h3>
-                <p id="message-description"></p>
+            <div class="board-controls">
+              <div class="board-stage" id="board-stage">
+                <div class="board-wrap" id="board-wrap"></div>
+                <div class="board-message" id="board-message" hidden>
+                  <span class="message-icon" aria-hidden="true">↗</span>
+                  <h3 id="message-title"></h3>
+                  <p id="message-description"></p>
+                </div>
+                <span class="corner-caption start-caption" id="start-caption"
+                  ><i></i> старт</span
+                >
+                <span class="corner-caption finish-caption" id="finish-caption"
+                  >финиш <i></i
+                ></span>
               </div>
-              <span class="corner-caption start-caption" id="start-caption"
-                ><i></i> старт</span
-              >
-              <span class="corner-caption finish-caption" id="finish-caption"
-                >финиш <i></i
-              ></span>
+
+              <div class="axis-control axis-control-y">
+                <label for="rows">Строки <b>b</b></label>
+                <input
+                  id="rows-range"
+                  type="range"
+                  min="0"
+                  max="0"
+                  step="1"
+                  value="0"
+                  aria-label="Количество строк: доступные размеры"
+                />
+                <input
+                  id="rows"
+                  type="number"
+                  min="1"
+                  max="50"
+                  step="1"
+                  value="5"
+                  inputmode="numeric"
+                  aria-describedby="rows-help validation"
+                />
+                <span id="rows-help" class="axis-help"></span>
+              </div>
+              <div class="axis-control axis-control-x">
+                <label for="columns">Столбцы <b>a</b></label>
+                <input
+                  id="columns-range"
+                  type="range"
+                  min="0"
+                  max="0"
+                  step="1"
+                  value="0"
+                  aria-label="Количество столбцов: доступные размеры"
+                />
+                <input
+                  id="columns"
+                  type="number"
+                  min="1"
+                  max="50"
+                  step="1"
+                  value="3"
+                  inputmode="numeric"
+                  aria-describedby="columns-help validation"
+                />
+                <span id="columns-help" class="axis-help"></span>
+              </div>
             </div>
             <div class="board-summary">
               <span
@@ -325,9 +394,9 @@
           </div>
           <div class="pattern-grid" id="pattern-grid"></div>
           <div class="method-note">
-            <span class="method-note-number">7x</span>
+            <span class="method-note-number" id="ratio-sum">Sx</span>
             <p>
-              На каждую горизонталь — четыре вертикали и две диагонали.<br /><span
+              H = H₀ × x, D = D₀ × x, V = V₀ × x.<br /><span
                 >Паттерны показаны в координатах алгоритма; при транспонировании
                 H ↔ V. Отказ построения не доказывает невозможность.</span
               >

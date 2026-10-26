@@ -1,14 +1,17 @@
 import "./style.css";
-import { validateDimensions } from "../solver.js";
+import { validateDimensions, validateRatio, MAX_SIDE } from "../solver.js";
 
 const $ = (id) => document.getElementById(id);
-const form = $("board-form");
+const ratioInputs = { H: $("ratio-h"), D: $("ratio-d"), V: $("ratio-v") };
 const columnsInput = $("columns");
 const rowsInput = $("rows");
 const timeline = $("timeline");
 const colors = { H: "#c17a48", V: "#3d7766", D: "#6a85b4" };
-let columns = 9;
-let rows = 11;
+let columns = 3;
+let rows = 5;
+let ratio = null;
+let boards = [];
+let axisValues = { columns: [], rows: [] };
 let solution = null;
 let worker = null;
 let step = 0;
@@ -21,31 +24,228 @@ const playIcon =
 const pauseIcon =
   '<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M5 3h4v14H5zm7 0h4v14h-4z" fill="currentColor"/></svg>';
 
-function checkInputs() {
-  const m = columnsInput.valueAsNumber;
-  const n = rowsInput.valueAsNumber;
-  const validation =
-    m > 31 || n > 31
-      ? {
-          valid: false,
-          message: "Для этой версии выберите размеры не больше 31 × 31.",
-        }
-      : validateDimensions(m, n);
-  $("validation").textContent = validation.valid
-    ? "Размеры прошли предварительную проверку"
-    : validation.message;
-  $("validation").classList.toggle("error", !validation.valid);
-  columnsInput.setAttribute("aria-invalid", String(!validation.valid));
-  rowsInput.setAttribute("aria-invalid", String(!validation.valid));
-  $("build").disabled = !validation.valid || busy;
-  const quota = validation.quota;
-  for (const kind of ["H", "V", "D"])
-    $("quota-" + kind.toLowerCase()).textContent = quota?.[kind] ?? "—";
-  $("quota-total").textContent = validation.moves ?? "—";
-  document.querySelectorAll("[data-size]").forEach((button) => {
-    button.classList.toggle("active", button.dataset.size === `${m},${n}`);
+function setValidation(message, error = false) {
+  $("validation").textContent = message;
+  $("validation").classList.toggle("error", error);
+}
+
+function syncSizeControls() {
+  columnsInput.value = columns;
+  rowsInput.value = rows;
+  for (const axis of ["columns", "rows"]) {
+    const other = axis === "columns" ? "rows" : "columns";
+    const current = axis === "columns" ? columns : rows;
+    const fixed = axis === "columns" ? rows : columns;
+    const values = [
+      ...new Set(
+        boards
+          .filter((board) => board[other] === fixed)
+          .map((board) => board[axis]),
+      ),
+    ].sort((a, b) => a - b);
+    axisValues[axis] = values;
+    const range = $(axis + "-range");
+    range.max = Math.max(0, values.length - 1);
+    range.value = values.indexOf(current);
+    range.disabled = values.length < 2;
+    range.setAttribute("aria-valuetext", String(current));
+    range.setAttribute(
+      "aria-label",
+      (axis === "columns" ? "Столбцы: " : "Строки: ") +
+        current +
+        ". Допустимые значения: " +
+        values.join(", "),
+    );
+    $(axis + "-help").textContent = "Доступны: " + values.join(", ");
+    $(axis).setAttribute("aria-invalid", "false");
+  }
+  const validation = validateDimensions(columns, rows, ratio);
+  for (const kind of ["H", "D", "V"])
+    $("quota-" + kind.toLowerCase()).textContent = validation.quota[kind];
+  $("quota-total").textContent = validation.moves;
+  $("multiplier").textContent =
+    "x = " + validation.multiplier + "; H + D + V = " + validation.moves;
+  document
+    .querySelectorAll("[data-size]")
+    .forEach((button) =>
+      button.classList.toggle(
+        "active",
+        button.dataset.size === columns + "," + rows,
+      ),
+    );
+}
+
+function selectBoard(board) {
+  if (!board) return;
+  columns = board.columns;
+  rows = board.rows;
+  syncSizeControls();
+  setValidation(
+    "Размер " +
+      columns +
+      " × " +
+      rows +
+      ": есть проверенный обход. Стороны 1–" +
+      MAX_SIDE +
+      ".",
+  );
+  buildRoute();
+}
+
+function chooseManualSize(axis) {
+  const value = $(axis).valueAsNumber;
+  const board = boards.find((item) => item[axis] === value);
+  if (!board) {
+    $(axis).setAttribute("aria-invalid", "true");
+    $("build").disabled = true;
+    setValidation(
+      "Для значения " +
+        ($(axis).value || "—") +
+        " нет найденной пары в пределах " +
+        MAX_SIDE +
+        " × " +
+        MAX_SIDE +
+        ". Выберите значение из списка под бегунком.",
+      true,
+    );
+    return;
+  }
+  selectBoard(board);
+}
+
+function calculate(message, onResult) {
+  worker?.terminate();
+  const activeWorker = new Worker(
+    new URL("./solver.worker.js", import.meta.url),
+    { type: "module" },
+  );
+  worker = activeWorker;
+  busy = true;
+  updateControls();
+  const finish = (data) => {
+    if (worker !== activeWorker) return;
+    activeWorker.terminate();
+    worker = null;
+    busy = false;
+    onResult(data);
+    updateControls();
+  };
+  activeWorker.onmessage = (event) => finish(event.data);
+  activeWorker.onerror = () =>
+    finish({
+      status: "error",
+      message:
+        "Не удалось выполнить расчёт. Измените параметры и попробуйте снова.",
+    });
+  activeWorker.postMessage(message);
+}
+
+function updateRatio() {
+  stopPlayback();
+  worker?.terminate();
+  worker = null;
+  busy = false;
+  solution = null;
+  boards = [];
+  $("board-panel").hidden = true;
+  $("board-empty").hidden = false;
+  $("quota-panel").hidden = true;
+  const next = Object.fromEntries(
+    Object.entries(ratioInputs).map(([kind, input]) => [
+      kind,
+      input.valueAsNumber,
+    ]),
+  );
+  const checked = validateRatio(next);
+  ratio = checked.valid ? next : null;
+  for (const [kind, input] of Object.entries(ratioInputs)) {
+    $("display-" + kind.toLowerCase()).textContent =
+      Number.isSafeInteger(next[kind]) && next[kind] >= 0 ? next[kind] : "—";
+    input.setAttribute(
+      "aria-invalid",
+      String(
+        input.value !== "" &&
+          (!Number.isSafeInteger(next[kind]) || next[kind] < 0),
+      ),
+    );
+  }
+  $("empty-title").textContent = "Сначала задайте соотношение";
+  $("empty-description").textContent =
+    "Три неотрицательных целых коэффициента; хотя бы один больше нуля.";
+  if (!ratio) {
+    const complete = Object.values(ratioInputs).every(
+      (input) => input.value !== "",
+    );
+    setValidation(
+      complete ? checked.message : "Заполните три поля или выберите пример.",
+      complete,
+    );
+    $("ratio-sum").textContent = "Sx";
+    updateControls();
+    return;
+  }
+  $("ratio-sum").textContent = checked.sum + "x";
+  $("empty-title").textContent = "Подбираем минимальную доску";
+  $("empty-description").textContent =
+    "Проверяем арифметику и строим обходы из разрешённых блоков.";
+  setValidation("Подбираем размеры…");
+  calculate({ type: "choices", ratio }, (data) => {
+    if (data.status === "error") {
+      setValidation(data.message, true);
+      $("empty-title").textContent = "Ошибка расчёта";
+      return;
+    }
+    boards = data.boards;
+    if (!boards.length) {
+      setValidation(
+        "В пределах " +
+          MAX_SIDE +
+          " × " +
+          MAX_SIDE +
+          " подходящий обход не найден.",
+        true,
+      );
+      $("empty-title").textContent = "Подходящий размер не найден";
+      $("empty-description").textContent = data.unresolved
+        ? "Некоторые размеры проходят необходимые условия, но разрешённые блоки не дали маршрута. Это не доказательство невозможности."
+        : `В пределах ${MAX_SIDE} × ${MAX_SIDE} нет размеров, проходящих необходимые условия. Измените соотношение.`;
+      return;
+    }
+    $("board-empty").hidden = true;
+    $("board-panel").hidden = false;
+    $("quota-panel").hidden = false;
+    $("examples-title").textContent = "Проверенные размеры · " + boards.length;
+    $("presets").innerHTML = boards
+      .map(
+        (board) =>
+          '<button type="button" data-size="' +
+          board.columns +
+          "," +
+          board.rows +
+          '">' +
+          board.columns +
+          " × " +
+          board.rows +
+          "</button>",
+      )
+      .join("");
+    selectBoard(boards[0]);
+    const minimum = boards[0];
+    setValidation(
+      "Минимальный найденный: " +
+        minimum.columns +
+        " × " +
+        minimum.rows +
+        ". При равной площади выбираем меньшую сторону.",
+    );
+    if (data.unresolved)
+      setValidation(
+        $("validation").textContent +
+          " Ещё " +
+          data.unresolved +
+          " размеров прошли арифметику, но обход для них не найден.",
+      );
   });
-  return validation;
 }
 
 function stopPlayback() {
@@ -57,6 +257,14 @@ function stopPlayback() {
 }
 
 function updateControls() {
+  $("build").disabled =
+    busy ||
+    !ratio ||
+    !boards.some(
+      (board) =>
+        board.columns === columnsInput.valueAsNumber &&
+        board.rows === rowsInput.valueAsNumber,
+    );
   const disabled = !solution || busy;
   for (const id of ["rewind", "play", "next", "timeline", "show-all"])
     $(id).disabled = disabled;
@@ -118,7 +326,7 @@ function drawBoard() {
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-.65 -.25 ${columns + 1} ${rows + 0.9}" class="board-svg ${$("show-numbers").checked ? "" : "hide-numbers"}" role="img" aria-label="Шахматная доска: ${columns} столбцов, ${rows} строк. Старт снизу слева, финиш сверху справа."><title>Маршрут по клеткам доски ${columns} × ${rows}</title>${cells}<rect x="0" y="0" width="${columns}" height="${rows}" class="grid-frame"/>${edges}${dots}${labels}<circle cx=".5" cy="${rows - 0.5}" r=".23" class="endpoint"/><text x=".5" y="${rows - 0.5}" class="endpoint-label">С</text>${columns * rows > 1 ? `<circle cx="${columns - 0.5}" cy=".5" r=".23" class="endpoint finish"/><text x="${columns - 0.5}" y=".5" class="endpoint-label">Ф</text>` : ""}<circle id="current-node" r=".13" class="current-node" hidden/>${xAxis}${yAxis}</svg>`;
   $("board-title").textContent = `Доска ${columns} × ${rows}`;
   $("board-subtitle").textContent =
-    `${columns * rows} клеток · ${columns * rows - 1} переходов${solution && rows > columns ? (solution.transposed ? " · транспонировано" : " · исходная ориентация") : ""}`;
+    `${columns * rows} клеток · ${columns * rows - 1} переходов${solution?.transposed ? " · транспонировано" : ""}`;
 }
 
 function setStep(value) {
@@ -172,82 +380,43 @@ function startPlayback() {
 }
 
 function buildRoute() {
-  if (!checkInputs().valid) return;
-  worker?.terminate();
+  if (!ratio || !validateDimensions(columns, rows, ratio).valid) return;
   stopPlayback();
-  columns = columnsInput.valueAsNumber;
-  rows = rowsInput.valueAsNumber;
   solution = null;
-  busy = true;
   step = 0;
   $("build").querySelector("span").textContent = "Подбираем маршрут…";
-  $("route-status").textContent =
-    rows > columns
-      ? "Транспонируем доску и собираем полосы…"
-      : "Собираем двухколоночные полосы…";
+  $("route-status").textContent = "Собираем разрешённые блоки…";
   $("route-status").classList.remove("error");
   $("step-total").textContent = columns * rows - 1;
   $("step-value").textContent = "0";
-  $("visited-count").textContent = "Проверяем все клетки и квоты ходов";
+  $("visited-count").textContent = "Проверяем клетки и квоты";
   timeline.max = columns * rows - 1;
   timeline.value = "0";
   timeline.style.setProperty("--progress", "0%");
   for (const kind of ["h", "v", "d"]) $("used-" + kind).textContent = "—";
   drawBoard();
   showMessage(
-    "Ищем непрерывный путь",
-    "Собираем полосы, подбираем баланс ходов и проверяем каждую клетку.",
+    "Строим непрерывный путь",
+    "Проверяем все клетки и точное соотношение ходов.",
   );
-  updateControls();
-  checkInputs();
-  worker = new Worker(new URL("./solver.worker.js", import.meta.url), {
-    type: "module",
-  });
-  const finish = () => {
-    busy = false;
-    worker?.terminate();
-    worker = null;
+  calculate({ type: "solve", columns, rows, ratio }, (data) => {
     $("build").querySelector("span").textContent = "Построить маршрут";
-    checkInputs();
-    updateControls();
-  };
-  worker.onmessage = ({ data }) => {
     if (data.status === "solved") {
       solution = data;
       $("board-message").hidden = true;
       $("route-status").textContent =
-        `Маршрут проверен · ${columns * rows} клеток без повторов`;
-      $("route-status").classList.remove("error");
+        "Маршрут проверен · " + columns * rows + " клеток без повторов";
       drawBoard();
-      finish();
       setStep(data.path.length - 1);
     } else {
-      const title =
-        data.status === "impossible" || data.status === "invalid"
-          ? "Для этих условий пути нет"
-          : data.status === "error"
-            ? "Не удалось выполнить расчёт"
-            : "Маршрут пока не найден";
-      showMessage(title, data.message);
-      $("route-status").textContent =
-        data.status === "not-found"
-          ? "Построение не завершилось решением"
-          : title;
+      showMessage(
+        data.status === "error" ? "Ошибка расчёта" : "Маршрут пока не найден",
+        data.message,
+      );
+      $("route-status").textContent = "Построение не завершилось решением";
       $("route-status").classList.add("error");
-      $("visited-count").textContent = "Измените размеры и попробуйте снова";
-      finish();
     }
-  };
-  worker.onerror = () => {
-    showMessage(
-      "Не удалось выполнить расчёт",
-      "Попробуйте построить маршрут ещё раз или выберите другой размер.",
-    );
-    $("route-status").textContent = "Ошибка расчёта";
-    $("route-status").classList.add("error");
-    finish();
-  };
-  worker.postMessage({ columns, rows });
+  });
 }
 
 const patterns = [
@@ -332,9 +501,45 @@ const patterns = [
     height: 3,
   },
 ];
+patterns.push(
+  {
+    name: "VDVH",
+    subtitle: "Выход из чётного блока",
+    points: [
+      [0, 0],
+      [0, 1],
+      [1, 0],
+      [1, 1],
+      [2, 1],
+    ],
+    width: 3,
+    height: 2,
+  },
+  {
+    name: "HDHH",
+    subtitle: "Выход с горизонталями",
+    points: [
+      [0, 0],
+      [1, 0],
+      [0, 1],
+      [1, 1],
+      [2, 1],
+    ],
+    width: 3,
+    height: 2,
+  },
+);
+const verticalLace = patterns.find((pattern) => pattern.name === "DDVVHVVDDH");
+patterns.push({
+  name: "DDHHVHHDDV",
+  subtitle: "Горизонтальная шнуровка",
+  points: verticalLace.points.map(([x, y]) => [y, x]),
+  width: verticalLace.height,
+  height: verticalLace.width,
+});
 $("pattern-grid").innerHTML = patterns
   .map((pattern, index) => {
-    const scale = Math.min(20, 56 / pattern.height);
+    const scale = Math.min(20, 56 / pattern.height, 100 / pattern.width);
     const offsetX = (110 - pattern.width * scale) / 2;
     const offsetY = (63 - pattern.height * scale) / 2;
     const position = ([x, y]) => [
@@ -369,24 +574,41 @@ for (const type of ["h", "v", "d"]) {
   label.insertAdjacentHTML("beforeend", ` <span id="used-${type}">—</span>`);
 }
 
-form.addEventListener("submit", (event) => {
+$("ratio-form").addEventListener("submit", (event) => {
   event.preventDefault();
-  buildRoute();
+  updateRatio();
 });
-for (const input of [columnsInput, rowsInput])
-  input.addEventListener("input", checkInputs);
-document.querySelectorAll("[data-size]").forEach((button) =>
+for (const input of Object.values(ratioInputs))
+  input.addEventListener("input", updateRatio);
+for (const button of document.querySelectorAll("[data-ratio]"))
   button.addEventListener("click", () => {
-    const [m, n] = button.dataset.size.split(",");
-    columnsInput.value = m;
-    rowsInput.value = n;
-    if (busy) {
-      worker?.terminate();
-      busy = false;
-    }
-    buildRoute();
-  }),
-);
+    const values = button.dataset.ratio.split(",");
+    ["H", "D", "V"].forEach((kind, index) => {
+      ratioInputs[kind].value = values[index];
+    });
+    updateRatio();
+  });
+for (const axis of ["columns", "rows"]) {
+  $(axis).addEventListener("input", () => chooseManualSize(axis));
+  $(axis + "-range").addEventListener("input", () => {
+    const value = axisValues[axis][Number($(axis + "-range").value)];
+    const other = axis === "columns" ? "rows" : "columns";
+    selectBoard(
+      boards.find(
+        (board) =>
+          board[axis] === value &&
+          board[other] === (other === "rows" ? rows : columns),
+      ),
+    );
+  });
+}
+$("presets").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-size]");
+  if (!button) return;
+  const [m, n] = button.dataset.size.split(",").map(Number);
+  selectBoard(boards.find((board) => board.columns === m && board.rows === n));
+});
+$("build").addEventListener("click", buildRoute);
 $("show-numbers").addEventListener("change", () =>
   document
     .querySelector(".board-svg")
@@ -418,4 +640,4 @@ $("speed").addEventListener("change", () => {
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) stopPlayback();
 });
-buildRoute();
+updateRatio();
