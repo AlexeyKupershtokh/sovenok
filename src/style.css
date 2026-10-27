@@ -601,6 +601,7 @@ h2 {
   stroke-width: 0.025;
 }
 .board-svg .endpoint {
+  pointer-events: none;
   fill: var(--green);
   stroke: #fcfcf8;
   stroke-width: 0.06;
@@ -608,7 +609,83 @@ h2 {
 .board-svg .endpoint.finish {
   fill: var(--orange);
 }
+.finish-button {
+  border: 1px solid #829b74;
+  border-radius: 6px;
+  color: var(--green);
+  background: #f4f7ed;
+  padding: 9px 12px;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.finish-button[aria-pressed="true"] {
+  background: #dce9c9;
+}
+.finish-button:disabled { opacity: .45; cursor: default; }
+.finish-prompt {
+  margin: 0 24px 12px;
+  padding: 12px 15px;
+  border-radius: 6px;
+  background: #eaf1df;
+  color: #405d36;
+}
+.finish-prompt strong { display: block; font-size: 15px; margin-bottom: 6px; }
+.finish-prompt span { font-size: 11px; line-height: 1.6; }
+.board-svg .finish-option {
+  fill: #b3d988;
+  fill-opacity: .8;
+  stroke: #467335;
+  stroke-width: .045;
+  cursor: pointer;
+}
+.board-svg .finish-option:hover,
+.board-svg .finish-option:focus {
+  fill: #f1c275;
+  fill-opacity: 1;
+  stroke: #8a5b1b;
+  stroke-width: .075;
+  outline: none;
+}
+.board-svg .finish-blocked {
+  fill: #edb1a6;
+  fill-opacity: .75;
+  stroke: #a34c40;
+  stroke-width: .045;
+  cursor: help;
+}
+.board-svg .finish-blocked:hover,
+.board-svg .finish-blocked:focus {
+  fill: #e69080;
+  fill-opacity: 1;
+  stroke-width: .075;
+  outline: none;
+}
+.finish-tooltip {
+  position: fixed;
+  z-index: 20;
+  width: max-content;
+  max-width: min(320px, calc(100vw - 24px));
+  padding: 11px 13px;
+  border: 1px solid #c78e83;
+  border-radius: 6px;
+  background: #fff8f5;
+  color: #693a30;
+  box-shadow: 0 4px 16px #4c2b2020;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+@media (max-width: 760px) {
+  .board-toolbar { flex-wrap: wrap; gap: 10px; }
+  .board-toolbar .board-title { flex-basis: 100%; align-items: flex-start; }
+  .board-toolbar .number-toggle { margin-left: auto; }
+}
 .board-svg .endpoint-label {
+  pointer-events: none;
   font-size: 0.19px;
   fill: white;
   text-anchor: middle;

@@ -1,5 +1,5 @@
 import "./style.css";
-import { validateDimensions, validateRatio, MAX_SIDE } from "../solver.js";
+import { validateDimensions, validateRatio, MAX_SIDE, PATTERNS, getFinishCells } from "../solver.js";
 
 const $ = (id) => document.getElementById(id);
 const ratioInputs = { H: $("ratio-h"), D: $("ratio-d"), V: $("ratio-v") };
@@ -17,8 +17,12 @@ let worker = null;
 let step = 0;
 let timer = null;
 let busy = false;
+let finish = null;
+let finishChoices = null;
+let choosingFinish = false;
 
 const moveType = (a, b) => (a.x === b.x ? "V" : a.y === b.y ? "H" : "D");
+const escapeAttribute = (text) => text.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 const playIcon =
   '<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="m6 3 11 7-11 7Z" fill="currentColor"/></svg>';
 const pauseIcon =
@@ -59,7 +63,7 @@ function syncSizeControls() {
     $(axis + "-help").textContent = "Доступны: " + values.join(", ");
     $(axis).setAttribute("aria-invalid", "false");
   }
-  const validation = validateDimensions(columns, rows, ratio);
+  const validation = validateDimensions(columns, rows, ratio, finish ?? undefined);
   for (const kind of ["H", "D", "V"])
     $("quota-" + kind.toLowerCase()).textContent = validation.quota[kind];
   $("quota-total").textContent = validation.moves;
@@ -77,8 +81,13 @@ function syncSizeControls() {
 
 function selectBoard(board) {
   if (!board) return;
+  hideFinishTooltip();
   columns = board.columns;
   rows = board.rows;
+  finish = { x: columns - 1, y: rows - 1 };
+  finishChoices = null;
+  choosingFinish = false;
+  $("finish-prompt").hidden = true;
   syncSizeControls();
   setValidation(
     "Размер " +
@@ -141,12 +150,17 @@ function calculate(message, onResult) {
 }
 
 function updateRatio() {
+  hideFinishTooltip();
   stopPlayback();
   worker?.terminate();
   worker = null;
   busy = false;
   solution = null;
   boards = [];
+  finish = null;
+  finishChoices = null;
+  choosingFinish = false;
+  $("finish-prompt").hidden = true;
   $("board-panel").hidden = true;
   $("board-empty").hidden = false;
   $("quota-panel").hidden = true;
@@ -207,7 +221,7 @@ function updateRatio() {
       );
       $("empty-title").textContent = "Подходящий размер не найден";
       $("empty-description").textContent = data.unresolved
-        ? "Некоторые размеры проходят необходимые условия, но разрешённые блоки не дали маршрута. Это не доказательство невозможности."
+        ? "Некоторые размеры проходят необходимые условия, но разрешённые блоки пока не дали маршрута."
         : `В пределах ${MAX_SIDE} × ${MAX_SIDE} нет размеров, проходящих необходимые условия. Измените соотношение.`;
       return;
     }
@@ -258,14 +272,16 @@ function stopPlayback() {
 
 function updateControls() {
   $("build").disabled =
-    busy ||
+    busy || choosingFinish ||
     !ratio ||
     !boards.some(
       (board) =>
         board.columns === columnsInput.valueAsNumber &&
         board.rows === rowsInput.valueAsNumber,
     );
-  const disabled = !solution || busy;
+  $("choose-finish").disabled = !solution || (busy && !choosingFinish);
+  $("choose-finish").setAttribute("aria-pressed", String(choosingFinish));
+  const disabled = !solution || busy || choosingFinish;
   for (const id of ["rewind", "play", "next", "timeline", "show-all"])
     $(id).disabled = disabled;
   if (!disabled) {
@@ -282,7 +298,9 @@ function showMessage(title, description) {
 }
 
 function drawBoard() {
-  const path = solution?.path ?? [];
+  hideFinishTooltip();
+  const path = choosingFinish ? [] : solution?.path ?? [];
+  const target = finish ?? { x: columns - 1, y: rows - 1 };
   const order = new Map(
     path.map((cell, index) => [`${cell.x},${cell.y}`, index + 1]),
   );
@@ -322,11 +340,83 @@ function drawBoard() {
     (_, y) =>
       `<text class="axis-label" x="-.24" y="${rows - y - 0.44}" text-anchor="end">${y + 1}</text>`,
   ).join("");
+  const targets = choosingFinish && finishChoices?.finishes ? getFinishCells(columns, rows, ratio, finishChoices.finishes).map((p) =>
+    `<rect class="${p.available ? "finish-option" : "finish-blocked"}" ${p.available ? "data-finish" : "data-finish-blocked"}="${p.x},${p.y}" data-reason="${escapeAttribute(p.reason)}" x="${p.x + .1}" y="${rows - 1 - p.y + .1}" width=".8" height=".8" rx=".12" tabindex="0" role="button"${p.available ? "" : ' aria-disabled="true"'} aria-label="Финиш: столбец ${p.x + 1}, строка ${p.y + 1}. ${escapeAttribute(p.reason)}"/>`,
+  ).join("") : "";
   $("board-wrap").innerHTML =
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-.65 -.25 ${columns + 1} ${rows + 0.9}" class="board-svg ${$("show-numbers").checked ? "" : "hide-numbers"}" role="img" aria-label="Шахматная доска: ${columns} столбцов, ${rows} строк. Старт снизу слева, финиш сверху справа."><title>Маршрут по клеткам доски ${columns} × ${rows}</title>${cells}<rect x="0" y="0" width="${columns}" height="${rows}" class="grid-frame"/>${edges}${dots}${labels}<circle cx=".5" cy="${rows - 0.5}" r=".23" class="endpoint"/><text x=".5" y="${rows - 0.5}" class="endpoint-label">С</text>${columns * rows > 1 ? `<circle cx="${columns - 0.5}" cy=".5" r=".23" class="endpoint finish"/><text x="${columns - 0.5}" y=".5" class="endpoint-label">Ф</text>` : ""}<circle id="current-node" r=".13" class="current-node" hidden/>${xAxis}${yAxis}</svg>`;
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-.65 -.25 ${columns + 1} ${rows + 0.9}" class="board-svg ${$("show-numbers").checked ? "" : "hide-numbers"}" role="${choosingFinish ? "group" : "img"}" aria-label="Шахматная доска: ${columns} столбцов, ${rows} строк. Старт снизу слева. Финиш: столбец ${target.x + 1}, строка ${target.y + 1}."><title>Маршрут по клеткам доски ${columns} × ${rows}</title>${cells}<rect x="0" y="0" width="${columns}" height="${rows}" class="grid-frame"/>${edges}${dots}${labels}${targets}<circle cx=".5" cy="${rows - 0.5}" r=".23" class="endpoint"/><text x=".5" y="${rows - 0.5}" class="endpoint-label">С</text>${!choosingFinish ? `<circle cx="${target.x + 0.5}" cy="${rows - target.y - 0.5}" r=".23" class="endpoint finish"/><text x="${target.x + 0.5}" y="${rows - target.y - 0.5}" class="endpoint-label">Ф</text>` : ""}<circle id="current-node" r=".13" class="current-node" hidden/>${xAxis}${yAxis}</svg>`;
   $("board-title").textContent = `Доска ${columns} × ${rows}`;
   $("board-subtitle").textContent =
-    `${columns * rows} клеток · ${columns * rows - 1} переходов${solution?.transposed ? " · транспонировано" : ""}`;
+    `${columns * rows} клеток · ${columns * rows - 1} переходов · финиш (${target.x + 1}, ${target.y + 1})${solution?.transposed ? " · транспонировано" : ""}`;
+}
+
+function showSolution(data) {
+  solution = data;
+  finish = data.path.at(-1);
+  $("board-message").hidden = true;
+  $("route-status").classList.remove("error");
+  $("route-status").textContent = "Маршрут проверен · " + columns * rows + " клеток без повторов";
+  drawBoard();
+  setStep(data.path.length - 1);
+}
+
+function hideFinishTooltip() {
+  $("finish-tooltip").hidden = true;
+}
+
+function showFinishTooltip(event) {
+  const cell = event.target.closest("[data-finish-blocked]");
+  if (!choosingFinish || !cell) { hideFinishTooltip(); return; }
+  const tooltip = $("finish-tooltip");
+  tooltip.textContent = cell.dataset.reason;
+  tooltip.hidden = false;
+  const anchor = cell.getBoundingClientRect(), bounds = tooltip.getBoundingClientRect();
+  tooltip.style.left = Math.max(12, Math.min(innerWidth - bounds.width - 12,
+    anchor.left + anchor.width / 2 - bounds.width / 2)) + "px";
+  const top = anchor.top - bounds.height - 10;
+  tooltip.style.top = Math.max(8, Math.min(innerHeight - bounds.height - 8,
+    top >= 8 ? top : anchor.bottom + 10)) + "px";
+}
+
+function chooseFinish() {
+  stopPlayback();
+  choosingFinish = !choosingFinish;
+  $("finish-prompt").hidden = !choosingFinish;
+  if (!choosingFinish) {
+    worker?.terminate(); worker = null; busy = false;
+    drawBoard(); setStep(step); updateControls();
+    return;
+  }
+  const showChoices = (data) => {
+    finishChoices = data;
+    $("finish-help").textContent = data.status === "error" ? data.message :
+      `Нажмите на зелёную клетку. Проверенных финишей: ${data.finishes.length}. Наведите на красную клетку, чтобы узнать причину.`;
+    drawBoard(); updateControls();
+  };
+  $("finish-help").textContent = "Подбираем маршруты до клеток на границе…";
+  drawBoard(); updateControls();
+  if (finishChoices) showChoices(finishChoices);
+  else calculate({ type: "finishes", columns, rows, ratio }, showChoices);
+}
+
+function selectFinish(event) {
+  if (event.type === "keydown" && event.key === "Escape") { hideFinishTooltip(); return; }
+  if (event.target.closest("[data-finish-blocked]")) {
+    if (event.type !== "keydown" || ["Enter", " "].includes(event.key)) {
+      event.preventDefault(); showFinishTooltip(event);
+    }
+    return;
+  }
+  const cell = event.target.closest("[data-finish]");
+  if (!choosingFinish || !cell || !finishChoices?.finishes) return;
+  if (event.type === "keydown" && !["Enter", " "].includes(event.key)) return;
+  event.preventDefault();
+  const data = finishChoices.finishes.find(({ finish: p }) => `${p.x},${p.y}` === cell.dataset.finish);
+  if (!data) return;
+  choosingFinish = false;
+  $("finish-prompt").hidden = true;
+  showSolution(data);
+  $("choose-finish").focus();
 }
 
 function setStep(value) {
@@ -380,7 +470,9 @@ function startPlayback() {
 }
 
 function buildRoute() {
-  if (!ratio || !validateDimensions(columns, rows, ratio).valid) return;
+  if (!ratio || !validateDimensions(columns, rows, ratio, finish ?? undefined).valid) return;
+  const cached = finishChoices?.finishes?.find((data) => data.finish.x === finish.x && data.finish.y === finish.y);
+  if (cached) { stopPlayback(); showSolution(cached); return; }
   stopPlayback();
   solution = null;
   step = 0;
@@ -399,15 +491,10 @@ function buildRoute() {
     "Строим непрерывный путь",
     "Проверяем все клетки и точное соотношение ходов.",
   );
-  calculate({ type: "solve", columns, rows, ratio }, (data) => {
+  calculate({ type: "solve", columns, rows, ratio, finish }, (data) => {
     $("build").querySelector("span").textContent = "Построить маршрут";
     if (data.status === "solved") {
-      solution = data;
-      $("board-message").hidden = true;
-      $("route-status").textContent =
-        "Маршрут проверен · " + columns * rows + " клеток без повторов";
-      drawBoard();
-      setStep(data.path.length - 1);
+      showSolution(data);
     } else {
       showMessage(
         data.status === "error" ? "Ошибка расчёта" : "Маршрут пока не найден",
@@ -537,6 +624,19 @@ patterns.push({
   width: verticalLace.height,
   height: verticalLace.width,
 });
+for (const name of ["VHVH", "VHVV", "VHVD", "DHDH", "DHDV"]) {
+  const variants = name === "VHVD" ? [PATTERNS[name], [...PATTERNS[name].slice(0, 3), [1, 1]]] : [PATTERNS[name]];
+  for (const [i, deltas] of variants.entries()) {
+    const points = [[0, 0]];
+    for (const [dx, dy] of deltas) {
+      const [x, y] = points.at(-1); points.push([x + dx, y + dy]);
+    }
+    const minX = Math.min(...points.map(([x]) => x)), minY = Math.min(...points.map(([, y]) => y));
+    const width = Math.max(...points.map(([x]) => x)) - minX + 1;
+    const height = Math.max(...points.map(([, y]) => y)) - minY + 1;
+    patterns.push({ name: name + (name === "VHVD" ? (i ? " ↑" : " ↓") : ""), subtitle: "Блок 2×2 с выходом", points: points.map(([x, y]) => [x - minX, y - minY]), width, height });
+  }
+}
 $("pattern-grid").innerHTML = patterns
   .map((pattern, index) => {
     const scale = Math.min(20, 56 / pattern.height, 100 / pattern.width);
@@ -564,7 +664,7 @@ $("pattern-grid").innerHTML = patterns
       .join("");
     const start = position(pattern.points[0]);
     const end = position(pattern.points.at(-1));
-    return `<article class="pattern-card"><div class="pattern-art"><svg viewBox="0 0 110 63" aria-hidden="true">${grid}${lines}<circle cx="${start[0]}" cy="${start[1]}" r="2.2" fill="#28574a"/><circle cx="${end[0]}" cy="${end[1]}" r="2" fill="#fcfcf8" stroke="#8b9b7b" stroke-width="1"/></svg></div><div class="pattern-description"><h3>${pattern.name}<span>0${index + 1}</span></h3><p>${pattern.subtitle}</p></div></article>`;
+    return `<article class="pattern-card"><div class="pattern-art"><svg viewBox="0 0 110 63" aria-hidden="true">${grid}${lines}<circle cx="${start[0]}" cy="${start[1]}" r="2.2" fill="#28574a"/><circle cx="${end[0]}" cy="${end[1]}" r="2" fill="#fcfcf8" stroke="#8b9b7b" stroke-width="1"/></svg></div><div class="pattern-description"><h3>${pattern.name}<span>${String(index + 1).padStart(2, "0")}</span></h3><p>${pattern.subtitle}</p></div></article>`;
   })
   .join("");
 
@@ -609,6 +709,15 @@ $("presets").addEventListener("click", (event) => {
   selectBoard(boards.find((board) => board.columns === m && board.rows === n));
 });
 $("build").addEventListener("click", buildRoute);
+$("choose-finish").addEventListener("click", chooseFinish);
+$("board-wrap").addEventListener("click", selectFinish);
+$("board-wrap").addEventListener("keydown", selectFinish);
+$("board-wrap").addEventListener("pointerover", showFinishTooltip);
+$("board-wrap").addEventListener("pointerleave", hideFinishTooltip);
+$("board-wrap").addEventListener("focusin", showFinishTooltip);
+$("board-wrap").addEventListener("focusout", hideFinishTooltip);
+window.addEventListener("resize", hideFinishTooltip);
+document.addEventListener("scroll", hideFinishTooltip, true);
 $("show-numbers").addEventListener("change", () =>
   document
     .querySelector(".board-svg")

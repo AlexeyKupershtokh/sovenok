@@ -25,7 +25,12 @@ export function validateRatio(ratio) {
   return { valid: true, sum };
 }
 
-export function validateDimensions(columns, rows, ratio = DEFAULT_RATIO) {
+export function validateDimensions(
+  columns,
+  rows,
+  ratio = DEFAULT_RATIO,
+  finish = { x: columns - 1, y: rows - 1 },
+) {
   const checkedRatio = validateRatio(ratio);
   if (!checkedRatio.valid) return checkedRatio;
   if (
@@ -61,26 +66,39 @@ export function validateDimensions(columns, rows, ratio = DEFAULT_RATIO) {
     moves,
     multiplier,
   });
-  if ((quota.H + quota.D) % 2 !== (columns - 1) % 2) {
-    return fail("Чётность H + D должна совпадать с чётностью a − 1.");
+  if (
+    !finish || !Number.isInteger(finish.x) || !Number.isInteger(finish.y) ||
+    finish.x < 0 || finish.x >= columns || finish.y < 0 || finish.y >= rows ||
+    (finish.x !== 0 && finish.x !== columns - 1 && finish.y !== 0 && finish.y !== rows - 1)
+  ) return fail("Выберите финиш на границе доски.");
+  if (finish.x === 0 && finish.y === 0)
+    return fail("Это клетка старта. Финиш здесь потребовал бы повторного посещения клетки.");
+  const parity = (value) => value % 2 ? "нечётное" : "чётное";
+  if ((quota.H + quota.D) % 2 !== finish.x % 2) {
+    return fail(`H + D = ${quota.H + quota.D} — ${parity(quota.H + quota.D)} число, а расстояние до этой клетки по горизонтали равно ${finish.x} — ${parity(finish.x)}. Чётность должна совпадать.`);
   }
-  if ((quota.V + quota.D) % 2 !== (rows - 1) % 2) {
-    return fail("Чётность V + D должна совпадать с чётностью b − 1.");
+  if ((quota.V + quota.D) % 2 !== finish.y % 2) {
+    return fail(`V + D = ${quota.V + quota.D} — ${parity(quota.V + quota.D)} число, а расстояние до этой клетки по вертикали равно ${finish.y} — ${parity(finish.y)}. Чётность должна совпадать.`);
   }
-  const sameColor = (columns + rows) % 2 === 0;
+  const sameColor = (finish.x + finish.y) % 2 === 0;
   if ((quota.H + quota.V) % 2 !== (sameColor ? 0 : 1)) {
     return fail("Чётность H + V должна соответствовать цветам углов.");
   }
-  if (quota.H + quota.D < columns - 1 || quota.V + quota.D < rows - 1) {
-    return fail(
-      "Ходов недостаточно, чтобы добраться до противоположного угла.",
-    );
+  if (quota.H + quota.D < finish.x)
+    return fail(`По горизонтали нужно пройти ${finish.x} клеток, но H + D = ${quota.H + quota.D}: ходов недостаточно.`);
+  if (quota.V + quota.D < finish.y)
+    return fail(`По вертикали нужно пройти ${finish.y} клеток, но V + D = ${quota.V + quota.D}: ходов недостаточно.`);
+  // Alternating row/column degree sums include both endpoint colors.
+  const minH = Math.abs(columns * (rows % 2) - Number(finish.y % 2 === 0));
+  const minV = Math.abs(rows * (columns % 2) - Number(finish.x % 2 === 0));
+  if (quota.H < minH) return fail(`Для этого финиша необходимо H ≥ ${minH}. Задано H = ${quota.H}.`);
+  if (quota.V < minV) return fail(`Для этого финиша необходимо V ≥ ${minV}. Задано V = ${quota.V}.`);
+  if (finish.x === columns - 1 && finish.y === rows - 1) {
+    if (quota.H === 0 && quota.D < (columns - 1) * rows / 2)
+      return fail(`При H = 0 для финиша в верхнем правом углу необходимо D ≥ (a − 1) × b / 2 = ${(columns - 1) * rows / 2}.`);
+    if (quota.V === 0 && quota.D < (rows - 1) * columns / 2)
+      return fail(`При V = 0 для финиша в верхнем правом углу необходимо D ≥ (b − 1) × a / 2 = ${(rows - 1) * columns / 2}.`);
   }
-  // Alternating row/column colors give these bounds only for an odd side.
-  if (rows % 2 && quota.H < columns - 1)
-    return fail("При нечётном b необходимо H ≥ a − 1.");
-  if (columns % 2 && quota.V < rows - 1)
-    return fail("При нечётном a необходимо V ≥ b − 1.");
   if (
     quota.H > (columns - 1) * rows ||
     quota.V > columns * (rows - 1) ||
@@ -98,11 +116,27 @@ export function validateDimensions(columns, rows, ratio = DEFAULT_RATIO) {
   return { valid: true, moves, multiplier, quota, sameColor };
 }
 
+export function getFinishCells(columns, rows, ratio, finishes = []) {
+  if (!Number.isSafeInteger(columns) || !Number.isSafeInteger(rows) ||
+    columns < 1 || rows < 1 || columns > MAX_SIDE || rows > MAX_SIDE) return [];
+  const available = new Set(finishes.map(({ finish }) => `${finish.x},${finish.y}`));
+  const cells = [];
+  for (let y = 0; y < rows; y++) for (let x = 0; x < columns; x++) {
+    if (x !== 0 && x !== columns - 1 && y !== 0 && y !== rows - 1) continue;
+    const solved = available.has(`${x},${y}`);
+    const checked = validateDimensions(columns, rows, ratio, { x, y });
+    cells.push({ x, y, available: solved, reason: solved ? "Есть проверенный маршрут." :
+      checked.valid ? "маршрут пока не найден; это не доказательство невозможности" : checked.message });
+  }
+  return cells;
+}
+
 export function verifyRoute(
   columns,
   rows,
   path,
   quota = validateDimensions(columns, rows).quota,
+  finish = { x: columns - 1, y: rows - 1 },
 ) {
   const counts = { H: 0, V: 0, D: 0 };
   const fail = (message) => ({ valid: false, counts, message });
@@ -111,8 +145,8 @@ export function verifyRoute(
   if (
     path[0]?.x !== 0 ||
     path[0]?.y !== 0 ||
-    path.at(-1)?.x !== columns - 1 ||
-    path.at(-1)?.y !== rows - 1
+    path.at(-1)?.x !== finish.x ||
+    path.at(-1)?.y !== finish.y
   )
     return fail("Неверные начало или конец маршрута.");
   const seen = new Set();
@@ -174,6 +208,11 @@ export const PATTERNS = {
     [1, 0],
     [1, 0],
   ],
+  VHVH: [[0, 1], [1, 0], [0, -1], [1, 0]],
+  VHVV: [[0, 1], [1, 0], [0, -1], [0, -1]],
+  VHVD: [[0, 1], [1, 0], [0, -1], [1, -1]],
+  DHDH: [[1, 1], [-1, 0], [1, -1], [1, 0]],
+  DHDV: [[1, 1], [-1, 0], [1, -1], [0, -1]],
 };
 
 function constructStrips(columns, rows, quota, deadline) {
@@ -303,9 +342,9 @@ function constructStrips(columns, rows, quota, deadline) {
 export function solveBoard(
   columns,
   rows,
-  { ratio = DEFAULT_RATIO, timeLimitMs = 2500 } = {},
+  { ratio = DEFAULT_RATIO, timeLimitMs = 2500, finish } = {},
 ) {
-  const validation = validateDimensions(columns, rows, ratio);
+  const validation = validateDimensions(columns, rows, ratio, finish);
   if (!validation.valid) return { status: "invalid", ...validation };
   const { quota } = validation;
   if (columns > MAX_SIDE || rows > MAX_SIDE)
@@ -314,6 +353,13 @@ export function solveBoard(
       quota,
       message: `Локальная версия ограничена сторонами до ${MAX_SIDE}.`,
     };
+  if (finish && (finish.x !== columns - 1 || finish.y !== rows - 1)) {
+    const choices = findFinishChoices(columns, rows, { ratio, timeLimitMs });
+    return choices.finishes.find((route) => route.finish.x === finish.x && route.finish.y === finish.y) ?? {
+      status: "not-found", quota,
+      message: "Для этого финиша маршрут пока не найден.",
+    };
+  }
   if (columns === 1 || rows === 1) {
     const path = Array.from({ length: columns * rows }, (_, i) => ({
       x: columns === 1 ? 0 : i,
@@ -371,8 +417,161 @@ export function solveBoard(
     status: "not-found",
     quota,
     message:
-      "Разрешённые паттерны не дали маршрут. Это не доказывает, что решения нет.",
+      "Разрешённые паттерны пока не дали маршрут.",
   };
+}
+
+const moveKind = (a, b) => a.x === b.x ? "V" : a.y === b.y ? "H" : "D";
+
+// Each completed tile is a 2×2 pattern, or a straight piece on an odd border.
+function searchBlockFinishes(columns, rows, quota, deadline, onRoute, offsetX, offsetY) {
+  if (performance.now() >= deadline) return;
+  const tiles = [], tileAt = new Uint16Array(columns * rows);
+  const intervals = (length, offset) => {
+    const result = [];
+    for (let start = 0; start < length;) {
+      const width = start === 0 && offset ? 1 : Math.min(2, length - start);
+      result.push([start, width]); start += width;
+    }
+    return result;
+  };
+  for (const [y, height] of intervals(rows, offsetY))
+    for (const [x, width] of intervals(columns, offsetX)) {
+      const cells = [];
+      for (let dy = 0; dy < height; dy++) for (let dx = 0; dx < width; dx++) {
+        const cell = { x: x + dx, y: y + dy };
+        tileAt[cell.y * columns + cell.x] = tiles.length;
+        cells.push(cell);
+      }
+      tiles.push({ cells, routes: new Map(), neighbors: new Set() });
+    }
+  const inside = ({ x, y }) => x >= 0 && x < columns && y >= 0 && y < rows;
+  const id = ({ x, y }) => y * columns + x;
+  for (const [index, tile] of tiles.entries()) {
+    const own = new Set(tile.cells.map(id));
+    for (const entry of tile.cells) {
+      const routes = [], seen = new Set();
+      const add = (body, pattern, exit) => {
+        if (new Set(body.map(id)).size !== tile.cells.length || body.some((p) => !inside(p) || !own.has(id(p)))) return;
+        const key = body.map(id).join(",") + ":" + (exit ? id(exit) : "end");
+        if (seen.has(key) || (exit && (!inside(exit) || own.has(id(exit))))) return;
+        seen.add(key);
+        const cost = { H: 0, D: 0, V: 0 };
+        for (let i = 1; i < body.length; i++) cost[moveKind(body[i - 1], body[i])]++;
+        const next = exit ? tileAt[id(exit)] : -1;
+        if (exit) tile.neighbors.add(next);
+        routes.push({ body, pattern, cost, exit, next });
+      };
+      if (tile.cells.length === 4) {
+        for (const [name, deltas] of Object.entries(PATTERNS)) {
+          const variants = name === "VHVD" ? [deltas, [...deltas.slice(0, 3), [1, 1]]] : [deltas];
+          for (const variant of variants) for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+            const body = [entry];
+            for (const [dx, dy] of variant.slice(0, 3)) {
+              const previous = body.at(-1);
+              body.push({ x: previous.x + sx * dx, y: previous.y + sy * dy });
+            }
+            const last = body.at(-1), [dx, dy] = variant[3];
+            add(body, name, null);
+            add(body, name, { x: last.x + sx * dx, y: last.y + sy * dy });
+          }
+        }
+      } else {
+        const body = [entry, ...tile.cells.filter((p) => id(p) !== id(entry))];
+        add(body, null, null);
+        const last = body.at(-1);
+        for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++)
+          if (dx || dy) add(body, null, { x: last.x + dx, y: last.y + dy });
+      }
+      tile.routes.set(id(entry), routes);
+    }
+    tile.neighbors.delete(index);
+  }
+  const visited = new Uint8Array(tiles.length), path = [], segments = [], remaining = { ...quota };
+  let nodes = 0, done = false;
+  function visit(entry, depth) {
+    if (done || performance.now() >= deadline) return;
+    nodes++;
+    const tileIndex = tileAt[id(entry)], tile = tiles[tileIndex];
+    visited[tileIndex] = 1;
+    const options = tile.routes.get(id(entry)).filter((route) => {
+      if (depth === tiles.length) return !route.exit;
+      return route.exit && !visited[route.next];
+    });
+    const degree = (next) => [...tiles[next].neighbors].filter((i) => !visited[i]).length;
+    options.sort((a, b) => (a.next < 0 ? 0 : degree(a.next)) - (b.next < 0 ? 0 : degree(b.next)));
+    for (const route of options) {
+      const cost = { ...route.cost };
+      if (route.exit) cost[moveKind(route.body.at(-1), route.exit)]++;
+      if (MOVE_NAMES.some((kind) => cost[kind] > remaining[kind])) continue;
+      for (const kind of MOVE_NAMES) remaining[kind] -= cost[kind];
+      const fromIndex = path.length;
+      path.push(...route.body);
+      segments.push({ kind: route.pattern ? "block" : "straight", pattern: route.pattern, fromIndex, toIndex: path.length - 1 });
+      if (!route.exit) {
+        const finish = path.at(-1);
+        if (MOVE_NAMES.every((kind) => remaining[kind] === 0) &&
+          (finish.x === 0 || finish.x === columns - 1 || finish.y === 0 || finish.y === rows - 1))
+          done = onRoute(path.slice(), segments.slice());
+      } else {
+        // A detached unvisited tile can never be reached later.
+        const connected = nodes % 32 !== 0 || tiles.every((t, i) => visited[i] || i === route.next || [...t.neighbors].some((j) => !visited[j]));
+        if (connected) visit(route.exit, depth + 1);
+      }
+      segments.pop(); path.length = fromIndex;
+      for (const kind of MOVE_NAMES) remaining[kind] += cost[kind];
+      if (done || performance.now() >= deadline) break;
+    }
+    visited[tileIndex] = 0;
+  }
+  visit({ x: 0, y: 0 }, 1);
+}
+
+export function findFinishChoices(columns, rows, { ratio = DEFAULT_RATIO, timeLimitMs = 1500 } = {}) {
+  if (!validateRatio(ratio).valid || !Number.isInteger(columns) || !Number.isInteger(rows) ||
+    columns < 1 || rows < 1 || columns > MAX_SIDE || rows > MAX_SIDE)
+    return { type: "finishes", finishes: [], unresolved: 0 };
+  const candidates = [];
+  for (let y = 0; y < rows; y++) for (let x = 0; x < columns; x++) {
+    if (x !== 0 && x !== columns - 1 && y !== 0 && y !== rows - 1) continue;
+    if (validateDimensions(columns, rows, ratio, { x, y }).valid) candidates.push({ x, y });
+  }
+  const finishes = new Map();
+  if (!candidates.length || columns > MAX_SIDE || rows > MAX_SIDE)
+    return { type: "finishes", finishes: [], unresolved: candidates.length };
+  const { quota } = validateDimensions(columns, rows, ratio, candidates[0]);
+  const accept = (path, segments, transposed = false) => {
+    const finish = path.at(-1), key = finish.x + "," + finish.y;
+    if (finishes.has(key) || !validateDimensions(columns, rows, ratio, finish).valid) return finishes.size === candidates.length;
+    const checked = verifyRoute(columns, rows, path, quota, finish);
+    if (!checked.valid) throw new Error(checked.message);
+    finishes.set(key, { status: "solved", path, segments, quota, counts: checked.counts, finish, transposed, method: "blocks" });
+    return finishes.size === candidates.length;
+  };
+  const base = solveBoard(columns, rows, { ratio });
+  if (base.status === "solved") {
+    const finish = base.path.at(-1);
+    finishes.set(finish.x + "," + finish.y, { ...base, finish });
+  }
+  // shortcut: search approved block tilings within a time budget; missing finishes
+  // remain unresolved, never classified as mathematically impossible.
+  const layouts = [];
+  for (const transposed of [false, true]) {
+    const width = transposed ? rows : columns, height = transposed ? columns : rows;
+    for (const ox of width % 2 && width > 1 ? [false, true] : [false])
+      for (const oy of height % 2 && height > 1 ? [false, true] : [false])
+        layouts.push({ transposed, width, height, ox, oy });
+  }
+  const started = performance.now(), budget = Number.isFinite(timeLimitMs) ? Math.max(0, timeLimitMs) : 1500;
+  for (const [i, layout] of layouts.entries()) {
+    if (finishes.size === candidates.length) break;
+    const { transposed, width, height, ox, oy } = layout;
+    searchBlockFinishes(width, height,
+      transposed ? { H: quota.V, D: quota.D, V: quota.H } : quota,
+      started + budget * (i + 1) / layouts.length,
+      (path, segments) => accept(transposed ? path.map(({ x, y }) => ({ x: y, y: x })) : path, segments, transposed), ox, oy);
+  }
+  return { type: "finishes", finishes: [...finishes.values()], unresolved: candidates.length - finishes.size };
 }
 
 export function findBoardChoices(ratio, maxSide = MAX_SIDE) {

@@ -195,6 +195,7 @@
                 2.
               </p>
               <p>При нечётном b: H ≥ a − 1.<br />При нечётном a: V ≥ b − 1.</p>
+              <p>При H = 0 и финише в верхнем правом углу: D ≥ (a − 1) × b / 2.</p>
               <p>
                 Цвет углов проверяется по H + V. Эти условия необходимы; каждый
                 найденный путь дополнительно проверяется.
@@ -223,12 +224,17 @@
                 <h2 id="board-title">Доска 9 × 11</h2>
                 <span id="board-subtitle">99 клеток · 98 переходов</span>
               </div>
+              <button type="button" id="choose-finish" class="finish-button" aria-pressed="false" disabled>Задать финиш</button>
               <label class="number-toggle"
                 ><input type="checkbox" id="show-numbers" checked /><span
                   class="toggle-track"
                 ></span
                 ><span>Номера</span></label
               >
+            </div>
+            <div class="finish-prompt" id="finish-prompt" role="status" aria-live="polite" hidden>
+              <strong>Задай точку финиша</strong>
+              <span id="finish-help">Подбираем маршруты до клеток на границе…</span>
             </div>
             <div class="board-controls">
               <div class="board-stage" id="board-stage">
@@ -241,9 +247,6 @@
                 <span class="corner-caption start-caption" id="start-caption"
                   ><i></i> старт</span
                 >
-                <span class="corner-caption finish-caption" id="finish-caption"
-                  >финиш <i></i
-                ></span>
               </div>
 
               <div class="axis-control axis-control-y">
@@ -398,7 +401,7 @@
             <p>
               H = H₀ × x, D = D₀ × x, V = V₀ × x.<br /><span
                 >Паттерны показаны в координатах алгоритма; при транспонировании
-                H ↔ V. Отказ построения не доказывает невозможность.</span
+                H ↔ V.</span
               >
             </p>
             <span class="method-note-formula">H + V + D = M × N − 1</span>
@@ -414,6 +417,7 @@
         >
       </footer>
     </div>
+    <div id="finish-tooltip" class="finish-tooltip" role="tooltip" hidden></div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

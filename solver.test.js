@@ -3,7 +3,10 @@ import test from "node:test";
 import {
   DEFAULT_RATIO,
   MAX_SIDE,
+  PATTERNS,
   findBoardChoices,
+  findFinishChoices,
+  getFinishCells,
   solveBoard,
   validateDimensions,
   validateRatio,
@@ -129,14 +132,14 @@ function assertGrammar(columns, rows, result) {
 }
 
 // Independent exhaustive oracle for tiny boards, without the block constructor.
-function exactQuotas(columns, rows) {
+function exactQuotas(columns, rows, finish = { x: columns - 1, y: rows - 1 }) {
   const size = columns * rows,
     seen = new Uint8Array(size),
     result = new Set(),
     counts = { H: 0, D: 0, V: 0 };
   seen[0] = 1;
   function visit(cell, depth) {
-    if (cell === size - 1) {
+    if (cell === finish.y * columns + finish.x) {
       if (depth === size) result.add(`${counts.H},${counts.D},${counts.V}`);
       return;
     }
@@ -362,4 +365,121 @@ test("the 50 by 50 boundary works in both the solver and the size picker", () =>
     solveBoard(50, 1, { ratio: { H: 1, D: 0, V: 0 } }).status,
     "solved",
   );
+});
+
+test("zero-horizontal diagonal lower bound rejects 6x6 with five diagonals", () => {
+  const result = validateDimensions(6, 6, { H: 0, D: 1, V: 6 });
+  assert.equal(result.valid, false);
+  assert.match(result.message, /D ≥.*15/);
+  assert.deepEqual(result.quota, { H: 0, D: 5, V: 30 });
+  const possible = solveBoard(6, 6, { ratio: { H: 0, D: 3, V: 4 } });
+  assert.equal(possible.status, "solved");
+  assert.equal(possible.counts.D, 15);
+  assert.match(validateDimensions(6, 6, { H: 6, D: 1, V: 0 }).message, /D ≥.*15/);
+});
+
+test("endpoint-aware necessary conditions retain every tiny-board oracle route", () => {
+  for (const [columns, rows] of [[2, 2], [2, 3], [3, 2], [3, 3]]) {
+    for (let y = 0; y < rows; y++) for (let x = 0; x < columns; x++) {
+      if ((!x && !y) || (x !== 0 && x !== columns - 1 && y !== 0 && y !== rows - 1)) continue;
+      const finish = { x, y };
+      for (const word of exactQuotas(columns, rows, finish)) {
+        const [H, D, V] = word.split(",").map(Number);
+        assert.equal(validateDimensions(columns, rows, { H, D, V }, finish).valid, true,
+          `${columns}×${rows}, ${word}, finish ${x},${y}`);
+      }
+    }
+  }
+  assert.equal(validateDimensions(3, 5, DEFAULT_RATIO, { x: 1, y: 2 }).valid, false);
+  assert.equal(validateDimensions(3, 5, DEFAULT_RATIO, { x: 0, y: 0 }).valid, false);
+  assert.equal(validateDimensions(3, 5, DEFAULT_RATIO, { x: 2, y: 1 }).valid, false);
+});
+
+function assertBlockGrammar(result) {
+  if (result.method !== "blocks") return;
+  const path = result.path.map(({ x, y }) => result.transposed ? { x: y, y: x } : { x, y });
+  for (const segment of result.segments) {
+    const body = path.slice(segment.fromIndex, segment.toIndex + 1);
+    if (segment.kind === "straight") {
+      assert.ok(body.length <= 2);
+      if (body.length === 2) assert.ok(body[0].x === body[1].x || body[0].y === body[1].y);
+      continue;
+    }
+    assert.equal(body.length, 4);
+    assert.equal(new Set(body.map(p => p.x)).size, 2);
+    assert.equal(new Set(body.map(p => p.y)).size, 2);
+    const points = segment.toIndex + 1 < path.length ? [...body, path[segment.toIndex + 1]] : body;
+    const deltas = points.slice(1).map((p, i) => [p.x - points[i].x, p.y - points[i].y]);
+    const variants = [PATTERNS[segment.pattern]];
+    if (segment.pattern === "VHVD") variants.push([...PATTERNS.VHVD.slice(0, 3), [1, 1]]);
+    assert.ok(variants.some(variant => [-1, 1].some(sx => [-1, 1].some(sy =>
+      deltas.every(([dx, dy], i) => dx === variant[i][0] * sx && dy === variant[i][1] * sy)
+    ))), segment.pattern);
+  }
+}
+
+test("finish choices carry verified block routes and preserve all quotas", () => {
+  const result = findFinishChoices(3, 5, { timeLimitMs: 500 });
+  assert.deepEqual(result.finishes.map(s => `${s.finish.x},${s.finish.y}`).sort(),
+    ["0,2", "0,4", "2,0", "2,2", "2,4"]);
+  assert.equal(result.unresolved, 0);
+  for (const route of result.finishes) {
+    assert.equal(verifyRoute(3, 5, route.path, route.quota, route.finish).valid, true);
+    assert.deepEqual(route.counts, { H: 2, V: 8, D: 4 });
+    assertBlockGrammar(route);
+  }
+  const finish = { x: 0, y: 2 };
+  const chosen = solveBoard(3, 5, { finish, timeLimitMs: 500 });
+  assert.equal(chosen.status, "solved");
+  assert.deepEqual(chosen.path.at(-1), finish);
+  assert.equal(verifyRoute(3, 5, chosen.path, chosen.quota).valid, false);
+  const even = findFinishChoices(4, 4, { ratio: { H: 2, D: 1, V: 2 }, timeLimitMs: 500 });
+  assert.equal(even.finishes.length, 3);
+  for (const route of even.finishes) {
+    assert.equal(verifyRoute(4, 4, route.path, route.quota, route.finish).valid, true);
+    assertBlockGrammar(route);
+  }
+  const unchanged = findFinishChoices(50, 50, { ratio: { H: 2, D: 3, V: 2 }, timeLimitMs: 0 });
+  assert.ok(unchanged.finishes.length >= 1);
+  assert.ok(unchanged.unresolved > 0);
+  assert.equal(unchanged.finishes[0].path.length, 2500);
+  for (const [columns, rows] of [[Infinity, 3], [2.5, 3], [51, 2], [0, 2]])
+    assert.deepEqual(findFinishChoices(columns, rows).finishes, []);
+});
+
+test("new patterns fill a 2x2 block before exiting, including upward VHVD", () => {
+  for (const name of ["VHVH", "VHVV", "VHVD", "DHDH", "DHDV"]) {
+    const cells = [{ x: 0, y: 0 }];
+    for (const [dx, dy] of PATTERNS[name]) {
+      const p = cells.at(-1); cells.push({ x: p.x + dx, y: p.y + dy });
+    }
+    assert.equal(new Set(cells.map(p => `${p.x},${p.y}`)).size, 5);
+    assert.equal(new Set(cells.slice(0, 4).map(p => p.x)).size, 2);
+    assert.equal(new Set(cells.slice(0, 4).map(p => p.y)).size, 2);
+  }
+});
+
+test("every border cell is available or has a specific or unresolved finish explanation", () => {
+  const result = findFinishChoices(3, 5, { timeLimitMs: 500 });
+  const cells = getFinishCells(3, 5, DEFAULT_RATIO, result.finishes);
+  assert.equal(cells.length, 12);
+  assert.equal(new Set(cells.map(p => `${p.x},${p.y}`)).size, 12);
+  assert.equal(cells.filter(p => p.available).length, 5);
+  assert.equal(cells.filter(p => !p.available).length, 7);
+  assert.ok(cells.every(p => p.x === 0 || p.x === 2 || p.y === 0 || p.y === 4));
+  const reason = (x, y) => cells.find(p => p.x === x && p.y === y).reason;
+  assert.match(reason(0, 0), /повторного посещения/);
+  assert.match(reason(1, 0), /H \+ D = 6.*горизонтали равно 1/);
+  assert.match(reason(0, 1), /V \+ D = 12.*вертикали равно 1/);
+
+  const ratio = { H: 0, D: 3, V: 4 };
+  const choices = findFinishChoices(6, 6, { ratio, timeLimitMs: 0 });
+  const larger = getFinishCells(6, 6, ratio, choices.finishes);
+  assert.equal(larger.length, 20);
+  assert.equal(larger.find(p => p.x === 5 && p.y === 5).available, true);
+  assert.equal(larger.find(p => p.x === 5 && p.y === 1).reason,
+    "маршрут пока не найден; это не доказательство невозможности");
+  const impossible = getFinishCells(6, 6, { H: 0, D: 1, V: 6 });
+  assert.match(impossible.find(p => p.x === 5 && p.y === 5).reason, /D ≥.*15/);
+  assert.deepEqual(getFinishCells(Infinity, 6, ratio), []);
 });
